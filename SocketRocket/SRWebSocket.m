@@ -165,7 +165,7 @@ NSString *const SRHTTPResponseErrorKey = @"HTTPResponseStatusCode";
     _workQueue = dispatch_queue_create(NULL, DISPATCH_QUEUE_SERIAL);
 
     // Going to set a specific on the queue so we can validate we're on the work queue
-    dispatch_queue_set_specific(_workQueue, (__bridge void *)self, (__bridge void *)(_workQueue), NULL);
+    dispatch_queue_set_specific(_workQueue, (__bridge void *)_workQueue, (__bridge void *)(_workQueue), NULL);
 
     _delegateController = [[SRDelegateController alloc] init];
 
@@ -236,7 +236,7 @@ NSString *const SRHTTPResponseErrorKey = @"HTTPResponseStatusCode";
 
 - (void)assertOnWorkQueue;
 {
-    assert(dispatch_get_specific((__bridge void *)self) == (__bridge void *)_workQueue);
+    assert(dispatch_get_specific((__bridge void *)_workQueue) == (__bridge void *)_workQueue);
 }
 
 ///--------------------------------------
@@ -307,11 +307,15 @@ NSString *const SRHTTPResponseErrorKey = @"HTTPResponseStatusCode";
     _selfRetain = self;
 
     if (_urlRequest.timeoutInterval > 0) {
+        __weak typeof (self) weakSelf = self;
+        
         dispatch_time_t popTime = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(_urlRequest.timeoutInterval * NSEC_PER_SEC));
         dispatch_after(popTime, dispatch_get_main_queue(), ^{
-            if (self.readyState == SR_CONNECTING) {
+            __strong typeof (weakSelf) strongSelf = weakSelf;
+            
+            if (strongSelf.readyState == SR_CONNECTING) {
                 NSError *error = SRErrorWithDomainCodeDescription(NSURLErrorDomain, NSURLErrorTimedOut, @"Timed out connecting to server.");
-                [self _failWithError:error];
+                [strongSelf _failWithError:error];
             }
         });
     }
@@ -418,15 +422,17 @@ NSString *const SRHTTPResponseErrorKey = @"HTTPResponseStatusCode";
     if (_receivedHTTPHeaders == NULL) {
         _receivedHTTPHeaders = CFHTTPMessageCreateEmpty(NULL, NO);
     }
+    
+    __weak typeof (_receivedHTTPHeaders) weakReceivedHTTPHeaders = _receivedHTTPHeaders;
 
     [self _readUntilHeaderCompleteWithCallback:^(SRWebSocket *socket,  NSData *data) {
-        CFHTTPMessageAppendBytes(_receivedHTTPHeaders, (const UInt8 *)data.bytes, data.length);
+        CFHTTPMessageAppendBytes(weakReceivedHTTPHeaders, (const UInt8 *)data.bytes, data.length);
 
-        if (CFHTTPMessageIsHeaderComplete(_receivedHTTPHeaders)) {
-            SRDebugLog(@"Finished reading headers %@", CFBridgingRelease(CFHTTPMessageCopyAllHeaderFields(_receivedHTTPHeaders)));
-            [self _HTTPHeadersDidFinish];
+        if (CFHTTPMessageIsHeaderComplete(weakReceivedHTTPHeaders)) {
+            SRDebugLog(@"Finished reading headers %@", CFBridgingRelease(CFHTTPMessageCopyAllHeaderFields(weakReceivedHTTPHeaders)));
+            [socket _HTTPHeadersDidFinish];
         } else {
-            [self _readHTTPHeader];
+            [socket _readHTTPHeader];
         }
     }];
 }
